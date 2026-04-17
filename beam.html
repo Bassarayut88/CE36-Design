@@ -218,7 +218,11 @@
         let b = parseFloat(document.getElementById('b').value);
         let h = parseFloat(document.getElementById('h').value);
         let cover = parseFloat(document.getElementById('cover').value);
-        let Mu = parseFloat(document.getElementById('mu').value);
+        
+        let Mu_input = parseFloat(document.getElementById('mu').value);
+        let Mu = Math.abs(Mu_input); // แปลงค่า Mu เป็นบวกเสมอเพื่อใช้เทียบ
+        let isNegativeMoment = (Mu_input < 0); // เช็กว่าแรงดึงอยู่ด้านบนหรือไม่
+
         let Vu = parseFloat(document.getElementById('vu').value);
         let Tu = parseFloat(document.getElementById('tu').value) * 100000; 
 
@@ -227,7 +231,6 @@
         let bot_n = parseInt(document.getElementById('bot_n').value);
         let bot_dia = parseInt(document.getElementById('bot_dia').value);
         
-        // รับค่าจำนวนชุดเหล็กปลอก (ให้เป็นจำนวนเต็ม 1, 2, 3... โดย 1 ชุด = 2 ขา)
         let st_sets = parseInt(document.getElementById('st_n').value);
         if(isNaN(st_sets) || st_sets < 1) st_sets = 1;
         let st_legs = st_sets * 2;
@@ -239,19 +242,32 @@
         let phi_b = 0.90; // Flexure
         let phi_v = 0.85; // Shear
         let phi_t = 0.75; // Torsion
-
-        // กำหนด Fy สำหรับบิด ให้ใช้ Fy เหล็กแกน
         let fy_st_tor = fy; 
 
         drawBars(top_n, bot_n, st_legs);
 
-        // Prep Formulas modified accurately based on notes
-        let As = bot_n * getArea(bot_dia);     
-        let As_prime = top_n * getArea(top_dia); 
-        // d' = ระยะหุ้ม + ไดอะมิเตอร์ปลอก + (ไดอะมิเตอร์เหล็กแกน/2)
-        let d_prime = cover + (st_dia/10) + (top_dia/10)/2; 
-        // d = ความลึกรวม - ระยะหุ้ม - ไดอะมิเตอร์ปลอก - (ไดอะมิเตอร์เหล็กแกน/2)
-        let d = h - (cover + (st_dia/10) + (bot_dia/10)/2); 
+        let area_top = top_n * getArea(top_dia);
+        let area_bot = bot_n * getArea(bot_dia);
+        
+        let cover_top_centroid = cover + (st_dia/10) + (top_dia/10)/2;
+        let cover_bot_centroid = cover + (st_dia/10) + (bot_dia/10)/2;
+
+        let As, As_prime, d, d_prime;
+
+        // ** เช็กสภาวะโมเมนต์บวก/ลบ เพื่อสลับเหล็กรับแรงดึง/อัด **
+        if (isNegativeMoment) {
+            // โมเมนต์ลบ (-): เหล็กบนรับแรงดึง, เหล็กล่างรับแรงอัด
+            As = area_top;
+            As_prime = area_bot;
+            d = h - cover_top_centroid;
+            d_prime = cover_bot_centroid;
+        } else {
+            // โมเมนต์บวก (+): เหล็กล่างรับแรงดึง, เหล็กบนรับแรงอัด
+            As = area_bot;
+            As_prime = area_top;
+            d = h - cover_bot_centroid;
+            d_prime = cover_top_centroid;
+        }
         
         let beta1 = (fc <= 280) ? 0.85 : Math.max(0.65, 0.85 - 0.05*(fc-280)/70);
 
@@ -269,8 +285,16 @@
         let Mn_tm = Mn_kgcm / 100000;
         let phiMn = phi_b * Mn_tm;
 
+        let momentType = isNegativeMoment ? "โมเมนต์ลบ (-)" : "โมเมนต์บวก (+)";
+
         let html = "";
-        html += `<div class="calc-row"><b>3.1 ออกแบบการดัด (Flexure Design) [Φ=${phi_b}]:</b></div>`;
+        html += `<div class="calc-row"><b>3.1 ออกแบบการดัด (Flexure Design) [Φ=${phi_b}] - สภาวะ${momentType}:</b></div>`;
+        
+        // เพิ่ม Note แจ้งผู้ใช้งานในรายงานหากเป็นโมเมนต์ลบ
+        if(isNegativeMoment) {
+             html += `<div class="sub-row" style="color:red; font-size:12px; margin-bottom:5px;">* คำนวณโดยใช้ <b>เหล็กบน (Top) เป็นเหล็กรับแรงดึง As</b> และ <b>เหล็กล่าง (Bot) เป็นเหล็กรับแรงอัด As'</b></div>`;
+        }
+
         html += `<div class="sub-row">d = ${fmt(d)} cm, d' = ${fmt(d_prime)} cm, As = ${fmt(As)} cm²</div>`;
         html += `<div class="sub-row">c = ${fmt(c_val)} cm, a = ${fmt(a_val)} cm, f's = ${fmt(fs_prime)} ksc ${comp_status}</div>`;
         
@@ -278,23 +302,18 @@
         html += `<div class="sub-row" style="color:#2980b9; font-size:12px;">Mn = [ 0.85(${fc})(${fmt(a_val)})(${b})(${fmt(d)} - ${fmt(a_val/2)}) + (${fmt(As_prime)})(${fmt(fs_prime)})(${fmt(d)} - ${fmt(d_prime)}) ] / 10⁵ = ${fmt(Mn_tm)} t-m</div>`;
 
         let m_status = (phiMn >= Mu) ? "<span class='status-pass'>OK (ผ่าน)</span>" : "<span class='status-fail'>NG (ไม่ผ่าน)</span>";
-        html += `<div class="result-box"><b>ΦMn = ${phi_b} × ${fmt(Mn_tm)} = ${fmt(phiMn)} t-m</b> vs <b>Mu = ${fmt(Mu)} t-m</b> ... ${m_status}</div>`;
+        html += `<div class="result-box"><b>ΦMn = ${phi_b} × ${fmt(Mn_tm)} = ${fmt(phiMn)} t-m</b> vs <b>|Mu| = ${fmt(Mu)} t-m</b> ... ${m_status}</div>`;
 
         // 3.2 Shear
         let Vc = 0.53 * Math.sqrt(fc) * b * d; 
-        
-        // คำนวณ Av รวมตามจำนวนขา
         let Area_Stirrup = getArea(st_dia);
         let Av = st_legs * Area_Stirrup; 
-
         let Vs_prov = (Av * fy_st * d) / s; 
-        
         let Limit_Vs_Req = 1.1 * Math.sqrt(fc) * b * d; 
         let phiVn = phi_v * (Vc + Vs_prov) / 1000; 
         
         let Vs_Req_Actual = (Vu * 1000 / phi_v) - Vc;
         if(Vs_Req_Actual < 0) Vs_Req_Actual = 0;
-        
         let Av_s_req = Vs_Req_Actual / (fy_st * d);
 
         html += `<div class="calc-row" style="margin-top:15px;"><b>3.2 ออกแบบการเฉือน (Shear Design) [Φ=${phi_v}]:</b></div>`;
@@ -332,7 +351,6 @@
             
             let t_status = (Prov_Stirrup >= Total_Req) ? "<span class='status-pass'>OK</span>" : "<span class='status-fail'>NG (เพิ่มเหล็กปลอก)</span>";
             
-            // เพิ่ม "cm." ตามหมายเหตุ
             html += `<div class="result-box">ใช้ ${st_sets} ชุด (${st_legs} ขา) RB${st_dia}@${s} cm. (Av/s = ${fmt(Prov_Stirrup)}) ... ${t_status}</div>`;
         } else {
             html += `<div class="sub-row">ไม่มีแรงบิดกระทำ (Tu = 0)</div>`;
